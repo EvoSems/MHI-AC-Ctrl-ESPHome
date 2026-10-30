@@ -3,6 +3,7 @@
 
 #include "MHI-AC-Ctrl-core.h"
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/core/preferences.h"
 #include "esphome/core/time.h"
 #include <vector>
 #include <string>
@@ -45,6 +46,31 @@ public:
 
 
 private:
+    struct PersistedState {
+        uint8_t version;
+        uint8_t valid;
+        uint8_t mode;
+        uint8_t fan;
+        uint8_t vanes;
+        uint8_t vanes_lr;
+        uint8_t auto_3d;
+        uint8_t setpoint;
+    };
+
+    enum PersistedField : uint8_t {
+        FIELD_MODE = 1 << 0,
+        FIELD_FAN = 1 << 1,
+        FIELD_VANES = 1 << 2,
+        FIELD_VANES_LR = 1 << 3,
+        FIELD_3D_AUTO = 1 << 4,
+        FIELD_SETPOINT = 1 << 5,
+    };
+
+    void mark_state_changed_();
+    void save_state_if_due_();
+    void restore_operating_state_();
+    void update_persisted_state_(ACStatus status, int value);
+
     void transfer_room_temperature(float value);
     float last_room_temperature_ = NAN; 
     float temperature_offset_ = 0.0f;
@@ -58,6 +84,10 @@ private:
     int miso_pin_ = -1;
 
     MHI_AC_Ctrl_Core mhi_ac_ctrl_core_;
+    ESPPreferenceObject state_preference_;
+    PersistedState persisted_state_{1, 0, 0, 7, 4, 4, 0, 40};
+    bool state_dirty_{false};
+    uint32_t state_save_at_{0};
 
     sensor::Sensor* external_temperature_sensor_{nullptr};
 

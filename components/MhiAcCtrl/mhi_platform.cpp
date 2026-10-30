@@ -7,9 +7,20 @@ namespace esphome {
 namespace mhi {
 
 static const char* TAG = "mhi.platform";
+static const uint8_t PERSISTED_STATE_VERSION = 1;
+static const uint32_t PERSISTED_STATE_KEY = 0x4D484901;
+static const uint32_t STATE_SAVE_DELAY_MS = 5000;
 
 
 void MhiPlatform::setup() {
+    this->state_preference_ = global_preferences->make_preference<PersistedState>(PERSISTED_STATE_KEY, true);
+    PersistedState restored;
+    if (this->state_preference_.load(&restored) && restored.version == PERSISTED_STATE_VERSION) {
+        this->persisted_state_ = restored;
+        ESP_LOGI(TAG, "Restored saved operating settings (valid fields: 0x%02X)", restored.valid);
+    } else {
+        ESP_LOGI(TAG, "No saved operating settings found");
+    }
     
     if (this->sck_pin_ >= 0) { //
       SCK_PIN = this->sck_pin_;
@@ -46,6 +57,7 @@ void MhiPlatform::set_external_room_temperature_sensor(sensor::Sensor* sensor) {
 }
 
 void MhiPlatform::loop() {
+    this->save_state_if_due_();
     if (this->external_temperature_sensor_ != nullptr) {
         this->transfer_room_temperature(this->external_temperature_sensor_->state);
         this->room_temp_api_active_ = false;
@@ -78,6 +90,8 @@ void MhiPlatform::dump_config() {
 
 void MhiPlatform:: cbiStatusFunction(ACStatus status, int value) {
     ESP_LOGD(TAG, "received status=%i value=%i", status, value);
+
+    this->update_persisted_state_(status, value);
 
     for (MhiStatusListener* listener:this->listeners_) {
         listener->update_status(status, value);
@@ -129,16 +143,35 @@ void MhiPlatform::transfer_room_temperature(float value) {
 }
 
 void MhiPlatform::set_power(ACPower value) {
+    if (value == power_on) {
+        this->restore_operating_state_();
+    }
     this->mhi_ac_ctrl_core_.set_power(value);
 }
 void MhiPlatform::set_fan(int value) {
+    if (this->persisted_state_.fan != value || !(this->persisted_state_.valid & FIELD_FAN)) {
+        this->persisted_state_.fan = value;
+        this->persisted_state_.valid |= FIELD_FAN;
+        this->mark_state_changed_();
+    }
     this->mhi_ac_ctrl_core_.set_fan(value);
 }
 void MhiPlatform::set_mode(ACMode value){
+    if (this->persisted_state_.mode != value || !(this->persisted_state_.valid & FIELD_MODE)) {
+        this->persisted_state_.mode = value;
+        this->persisted_state_.valid |= FIELD_MODE;
+        this->mark_state_changed_();
+    }
     this->mhi_ac_ctrl_core_.set_mode(value);
 }
 void MhiPlatform::set_tsetpoint(float value) {
-    this->mhi_ac_ctrl_core_.set_tsetpoint((byte)(2 * value));
+    uint8_t setpoint = static_cast<uint8_t>(2 * value);
+    if (this->persisted_state_.setpoint != setpoint || !(this->persisted_state_.valid & FIELD_SETPOINT)) {
+        this->persisted_state_.setpoint = setpoint;
+        this->persisted_state_.valid |= FIELD_SETPOINT;
+        this->mark_state_changed_();
+    }
+    this->mhi_ac_ctrl_core_.set_tsetpoint(setpoint);
     
     ESP_LOGD(TAG, "set setpoint: %f", value);
 
@@ -160,7 +193,11 @@ void MhiPlatform::set_offset(float value) {
 }
 
 void MhiPlatform::set_vanes(int value) {
-    
+    if (this->persisted_state_.vanes != value || !(this->persisted_state_.valid & FIELD_VANES)) {
+        this->persisted_state_.vanes = value;
+        this->persisted_state_.valid |= FIELD_VANES;
+        this->mark_state_changed_();
+    }
     this->mhi_ac_ctrl_core_.set_vanes(value);
     ESP_LOGD(TAG, "set vanes: %i", value);
 }
@@ -168,7 +205,11 @@ void MhiPlatform::set_vanes(int value) {
 void MhiPlatform::set_vanesLR(int value) {
 
     if (this->frame_size_ == 33) {
-    
+        if (this->persisted_state_.vanes_lr != value || !(this->persisted_state_.valid & FIELD_VANES_LR)) {
+            this->persisted_state_.vanes_lr = value;
+            this->persisted_state_.valid |= FIELD_VANES_LR;
+            this->mark_state_changed_();
+        }
         ESP_LOGD(TAG, "setting vanesLR to: %i", value);
         this->mhi_ac_ctrl_core_.set_vanesLR(value);
         ESP_LOGD(TAG, "set vanes Left Right: %i", value);
@@ -180,6 +221,11 @@ void MhiPlatform::set_vanesLR(int value) {
 
 void MhiPlatform::set_3Dauto(bool value) {
     if (this->frame_size_ == 33) {
+        if (this->persisted_state_.auto_3d != value || !(this->persisted_state_.valid & FIELD_3D_AUTO)) {
+            this->persisted_state_.auto_3d = value;
+            this->persisted_state_.valid |= FIELD_3D_AUTO;
+            this->mark_state_changed_();
+        }
         
         if (value) {
             ESP_LOGD(TAG, "set 3D auto: on");
@@ -191,6 +237,82 @@ void MhiPlatform::set_3Dauto(bool value) {
         ESP_LOGD(TAG, "set 3d auto: %i", value);
     } else {
         ESP_LOGD("main", "Not setting 3d auto: %i because of frame_size", value);
+    }
+}
+
+void MhiPlatform::mark_state_changed_() {
+    this->state_dirty_ = true;
+    this->state_save_at_ = millis() + STATE_SAVE_DELAY_MS;
+}
+
+void MhiPlatform::save_state_if_due_() {
+    if (!this->state_dirty_ || static_cast<int32_t>(millis() - this->state_save_at_) < 0) {
+        return;
+    }
+    if (this->state_preference_.save(&this->persisted_state_) && global_preferences->sync()) {
+        ESP_LOGD(TAG, "Saved operating settings");
+        this->state_dirty_ = false;
+    } else {
+        ESP_LOGW(TAG, "Failed to save operating settings");
+        this->state_save_at_ = millis() + STATE_SAVE_DELAY_MS;
+    }
+}
+
+void MhiPlatform::restore_operating_state_() {
+    const uint8_t valid = this->persisted_state_.valid;
+    ESP_LOGI(TAG, "Restoring operating settings before power on (valid fields: 0x%02X)", valid);
+    if (valid & FIELD_MODE)
+        this->mhi_ac_ctrl_core_.set_mode(static_cast<ACMode>(this->persisted_state_.mode));
+    if (valid & FIELD_SETPOINT)
+        this->mhi_ac_ctrl_core_.set_tsetpoint(this->persisted_state_.setpoint);
+    if (valid & FIELD_FAN)
+        this->mhi_ac_ctrl_core_.set_fan(this->persisted_state_.fan);
+    if (valid & FIELD_VANES)
+        this->mhi_ac_ctrl_core_.set_vanes(this->persisted_state_.vanes);
+    if (this->frame_size_ == 33 && (valid & FIELD_VANES_LR))
+        this->mhi_ac_ctrl_core_.set_vanesLR(this->persisted_state_.vanes_lr);
+    if (this->frame_size_ == 33 && (valid & FIELD_3D_AUTO))
+        this->mhi_ac_ctrl_core_.set_3Dauto(this->persisted_state_.auto_3d ? AC3Dauto::Dauto_on : AC3Dauto::Dauto_off);
+}
+
+void MhiPlatform::update_persisted_state_(ACStatus status, int value) {
+    uint8_t field = 0;
+    uint8_t *destination = nullptr;
+    switch (status) {
+        case status_mode:
+            field = FIELD_MODE;
+            destination = &this->persisted_state_.mode;
+            break;
+        case status_fan:
+            field = FIELD_FAN;
+            destination = &this->persisted_state_.fan;
+            break;
+        case status_vanes:
+            field = FIELD_VANES;
+            destination = &this->persisted_state_.vanes;
+            break;
+        case status_vanesLR:
+            field = FIELD_VANES_LR;
+            destination = &this->persisted_state_.vanes_lr;
+            break;
+        case status_3Dauto:
+            field = FIELD_3D_AUTO;
+            destination = &this->persisted_state_.auto_3d;
+            value = value == 0b00000100;
+            break;
+        case status_tsetpoint:
+            field = FIELD_SETPOINT;
+            destination = &this->persisted_state_.setpoint;
+            value &= 0x7f;
+            break;
+        default:
+            return;
+    }
+
+    if (*destination != value || !(this->persisted_state_.valid & field)) {
+        *destination = static_cast<uint8_t>(value);
+        this->persisted_state_.valid |= field;
+        this->mark_state_changed_();
     }
 }
 
