@@ -20,6 +20,8 @@ Saved settings are updated from both ESPHome commands and status frames received
 
 On an ESP restart, the saved power state is deliberately not restored and no power-on command is sent. This prevents an AC that was off from starting unexpectedly after a controller restart or power failure.
 
+Commands are sent twice by default to improve reliability on noisy links. Set `command_retries` under `MhiAcCtrl` to a value from 1 to 5 to tune this behavior. Communication errors are rate-limited in the log so a disconnected or noisy controller cannot flood ESPHome logs.
+
 This project is a simple integration of the amazing work [absalom-muc](https://github.com/absalom-muc) has done with his project [MHI-AC-Ctrl](https://github.com/absalom-muc/MHI-AC-Ctrl).\
 It's supposed to simplify the [Home Assistant](https://www.home-assistant.io/) setup, while giving you OTA and auto-discovery with virtually zero effort and no MQTT needed, powered by [ESPHome](https://ESPHome.io/).\
 `MHI-AC-Ctrl-core.*` files were forked directly, with a small modification to allow for pin setting in yaml, whereas your WiFi credentials should go into the `*.yaml` file, and `mhi_ac_ctrl.h` is the core of the integration.

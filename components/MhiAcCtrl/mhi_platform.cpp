@@ -10,6 +10,7 @@ static const char* TAG = "mhi.platform";
 static const uint8_t PERSISTED_STATE_VERSION = 1;
 static const uint32_t PERSISTED_STATE_KEY = 0x4D484901;
 static const uint32_t STATE_SAVE_DELAY_MS = 5000;
+static const uint32_t ERROR_LOG_INTERVAL_MS = 10000;
 
 
 void MhiPlatform::setup() {
@@ -35,6 +36,7 @@ void MhiPlatform::setup() {
     this->mhi_ac_ctrl_core_.MHIAcCtrlStatus(this);
     this->mhi_ac_ctrl_core_.init();
     this->mhi_ac_ctrl_core_.set_frame_size(this->frame_size_); // set framesize. Only 20 (legacy) or 33 (includes 3D auto and vertical vanes) possible
+    this->mhi_ac_ctrl_core_.set_command_retries(this->command_retries_);
 
     if (this->external_temperature_sensor_ != nullptr) {
         this->external_temperature_sensor_->add_on_state_callback([this](float state) {        
@@ -46,6 +48,10 @@ void MhiPlatform::setup() {
 
 void MhiPlatform::set_frame_size(int framesize) {
     this->frame_size_ = framesize;
+}
+
+void MhiPlatform::set_command_retries(int retries) {
+    this->command_retries_ = retries;
 }
 
 void MhiPlatform::set_room_temp_api_timeout(int time_in_seconds) {
@@ -72,7 +78,16 @@ void MhiPlatform::loop() {
 
     int ret = mhi_ac_ctrl_core_.loop(100);
     if (ret < 0) {
-        ESP_LOGE(TAG, "mhi_ac_ctrl_core,loop error: %i", ret);
+        this->suppressed_error_count_++;
+        if (ret != this->last_loop_error_ || millis() - this->last_error_log_at_ >= ERROR_LOG_INTERVAL_MS) {
+            ESP_LOGW(TAG, "Communication error %i (%u occurrences since last report)", ret,
+                     this->suppressed_error_count_);
+            this->last_loop_error_ = ret;
+            this->last_error_log_at_ = millis();
+            this->suppressed_error_count_ = 0;
+        }
+    } else {
+        this->last_loop_error_ = 0;
     }
 }
 
@@ -84,6 +99,7 @@ void MhiPlatform::dump_config() {
     }
 
     ESP_LOGCONFIG(TAG, "  frame_size: %d", this->frame_size_);
+    ESP_LOGCONFIG(TAG, "  command_retries: %d", this->command_retries_);
     ESP_LOGCONFIG(TAG, "  room_temp_api_timeout: %d", this->room_temp_api_timeout_);
     ESP_LOGCONFIG(TAG, "  listeners count: %d", this->listeners_.size());
 }

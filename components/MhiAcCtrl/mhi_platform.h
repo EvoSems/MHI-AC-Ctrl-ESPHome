@@ -20,6 +20,7 @@ public:
 
     void setup() override;
     void set_frame_size(int framesize);
+    void set_command_retries(int retries);
     void set_room_temp_api_timeout(int time_in_seconds);
     void loop() override;
     void dump_config() override;
@@ -76,6 +77,7 @@ private:
     float temperature_offset_ = 0.0f;
 
     int frame_size_;
+    int command_retries_{2};
     unsigned long room_temp_api_timeout_start_ = millis();
     unsigned long room_temp_api_timeout_;
     bool room_temp_api_active_ = false;
@@ -88,6 +90,9 @@ private:
     PersistedState persisted_state_{1, 0, 0, 7, 4, 4, 0, 40};
     bool state_dirty_{false};
     uint32_t state_save_at_{0};
+    int last_loop_error_{0};
+    uint32_t last_error_log_at_{0};
+    uint32_t suppressed_error_count_{0};
 
     sensor::Sensor* external_temperature_sensor_{nullptr};
 

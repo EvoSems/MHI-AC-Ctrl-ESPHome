@@ -62,25 +62,31 @@ void MHI_AC_Ctrl_Core::init() {
 
 void MHI_AC_Ctrl_Core::set_power(boolean power) {
   new_Power = 0b10 | power;
+  power_retries = command_retries;
 }
 
 void MHI_AC_Ctrl_Core::set_mode(ACMode mode) {
   new_Mode = 0b00100000 | mode;
+  mode_retries = command_retries;
 }
 
 void MHI_AC_Ctrl_Core::set_tsetpoint(uint tsetpoint) {
   new_Tsetpoint = 0b10000000 | tsetpoint;
+  tsetpoint_retries = command_retries;
 }
 
 void MHI_AC_Ctrl_Core::set_fan(uint fan) {
   new_Fan = 0b00001000 | fan;
+  fan_retries = command_retries;
 }
 
 void MHI_AC_Ctrl_Core::set_3Dauto(AC3Dauto Dauto) {
   new_3Dauto = 0b00001010 | Dauto;
+  auto3d_retries = command_retries;
 }
 
 void MHI_AC_Ctrl_Core::set_vanes(uint vanes) {
+  vanes_retries = command_retries;
   if (vanes == vanes_swing) {
     new_Vanes0 = 0b11000000; // enable swing
   }
@@ -91,6 +97,7 @@ void MHI_AC_Ctrl_Core::set_vanes(uint vanes) {
 }
 
 void MHI_AC_Ctrl_Core::set_vanesLR(uint vanesLR) {
+  vanesLR_retries = command_retries;
   if (vanesLR == vanesLR_swing) {
     new_VanesLR0 = 0b00001011; // enable swing
   }
@@ -120,6 +127,10 @@ void MHI_AC_Ctrl_Core::set_troom_offset(float offset) {
 void MHI_AC_Ctrl_Core::set_frame_size(byte framesize) {
   if (framesize == 20 || framesize == 33)
     frameSize = framesize;
+}
+
+void MHI_AC_Ctrl_Core::set_command_retries(byte retries) {
+  command_retries = retries;
 }
 
 int MHI_AC_Ctrl_Core::loop(uint max_time_ms) {
@@ -190,22 +201,31 @@ static byte MOSI_frame[33];
     }
 
     // set Power, Mode, Tsetpoint, Fan, Vanes
-    MISO_frame[DB0] = new_Power;
-    new_Power = 0;
+    if (power_retries > 0) {
+      MISO_frame[DB0] = new_Power;
+      power_retries--;
+    }
 
-    MISO_frame[DB0] |= new_Mode;
-    new_Mode = 0;
+    if (mode_retries > 0) {
+      MISO_frame[DB0] |= new_Mode;
+      mode_retries--;
+    }
 
-    MISO_frame[DB2] = new_Tsetpoint;
-    new_Tsetpoint = 0;
+    if (tsetpoint_retries > 0) {
+      MISO_frame[DB2] = new_Tsetpoint;
+      tsetpoint_retries--;
+    }
 
-    MISO_frame[DB1] = new_Fan;
-    new_Fan = 0;
+    if (fan_retries > 0) {
+      MISO_frame[DB1] = new_Fan;
+      fan_retries--;
+    }
 
-    MISO_frame[DB0] |= new_Vanes0;
-    MISO_frame[DB1] |= new_Vanes1;
-    new_Vanes0 = 0;
-    new_Vanes1 = 0;
+    if (vanes_retries > 0) {
+      MISO_frame[DB0] |= new_Vanes0;
+      MISO_frame[DB1] |= new_Vanes1;
+      vanes_retries--;
+    }
 
     if (request_erropData) {
       MISO_frame[DB6] = 0x80;
@@ -222,13 +242,16 @@ static byte MOSI_frame[33];
 
   if (frameSize == 33) { // Only for framesize 33 (WF-RAC)
     MISO_frame[DB16] = 0;
-    MISO_frame[DB16] |= new_VanesLR1;
     MISO_frame[DB17] = 0;
-    MISO_frame[DB17] |= new_VanesLR0;  
-    MISO_frame[DB17] |= new_3Dauto;
-    new_3Dauto = 0;
-    new_VanesLR0 = 0;
-    new_VanesLR1 = 0;
+    if (vanesLR_retries > 0) {
+      MISO_frame[DB16] |= new_VanesLR1;
+      MISO_frame[DB17] |= new_VanesLR0;
+      vanesLR_retries--;
+    }
+    if (auto3d_retries > 0) {
+      MISO_frame[DB17] |= new_3Dauto;
+      auto3d_retries--;
+    }
 
     checksum = calc_checksumFrame33(MISO_frame);
     MISO_frame[CBL2] = lowByte(checksum);
@@ -250,7 +273,10 @@ static byte MOSI_frame[33];
         digitalWrite(MISO_PIN, 1);
       else
         digitalWrite(MISO_PIN, 0);
-      while (!digitalRead(SCK_PIN)) {} // wait for rising edge
+      while (!digitalRead(SCK_PIN)) { // wait for rising edge
+        if (millis() - startMillis > max_time_ms)
+          return err_msg_timeout_SCK_low;
+      }
       if (digitalRead(MOSI_PIN))
         MOSI_byte += bit_mask;
       bit_mask = bit_mask << 1;
