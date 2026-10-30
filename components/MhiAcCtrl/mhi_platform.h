@@ -39,6 +39,9 @@ public:
     void set_vanes(int value);
     void set_vanesLR(int value);
     void set_3Dauto(bool value);
+    void set_silent_operation(bool value);
+    void start_self_clean();
+    void set_self_clean_duration(uint32_t duration_ms) { this->self_clean_duration_ms_ = duration_ms; }
     void set_external_room_temperature_sensor(sensor::Sensor* sensor);
     void set_sck_pin(int pin) { this->sck_pin_ = pin; };
     void set_mosi_pin(int pin) { this->mosi_pin_ = pin; };
@@ -56,6 +59,7 @@ private:
         uint8_t vanes_lr;
         uint8_t auto_3d;
         uint8_t setpoint;
+        uint8_t silent_operation;
     };
 
     enum PersistedField : uint8_t {
@@ -65,6 +69,7 @@ private:
         FIELD_VANES_LR = 1 << 3,
         FIELD_3D_AUTO = 1 << 4,
         FIELD_SETPOINT = 1 << 5,
+        FIELD_SILENT_OPERATION = 1 << 6,
     };
 
     void mark_state_changed_();
@@ -87,12 +92,13 @@ private:
 
     MHI_AC_Ctrl_Core mhi_ac_ctrl_core_;
     ESPPreferenceObject state_preference_;
-    PersistedState persisted_state_{1, 0, 0, 7, 4, 4, 0, 40};
+    PersistedState persisted_state_{1, 0, 0, 7, 4, 4, 0, 40, 0};
     bool state_dirty_{false};
     uint32_t state_save_at_{0};
     int last_loop_error_{0};
     uint32_t last_error_log_at_{0};
     uint32_t suppressed_error_count_{0};
+    uint32_t self_clean_duration_ms_{7200000};
 
     sensor::Sensor* external_temperature_sensor_{nullptr};
 

@@ -159,6 +159,7 @@ void MhiPlatform::transfer_room_temperature(float value) {
 }
 
 void MhiPlatform::set_power(ACPower value) {
+    this->cancel_timeout("self_clean");
     if (value == power_on) {
         this->restore_operating_state_();
     }
@@ -256,6 +257,28 @@ void MhiPlatform::set_3Dauto(bool value) {
     }
 }
 
+void MhiPlatform::set_silent_operation(bool value) {
+    if (this->persisted_state_.silent_operation != value ||
+        !(this->persisted_state_.valid & FIELD_SILENT_OPERATION)) {
+        this->persisted_state_.silent_operation = value;
+        this->persisted_state_.valid |= FIELD_SILENT_OPERATION;
+        this->mark_state_changed_();
+    }
+    this->mhi_ac_ctrl_core_.set_silent_operation(value);
+}
+
+void MhiPlatform::start_self_clean() {
+    this->cancel_timeout("self_clean");
+    ESP_LOGI(TAG, "Starting emulated self-clean cycle for %u minutes", this->self_clean_duration_ms_ / 60000);
+    this->mhi_ac_ctrl_core_.set_mode(mode_fan);
+    this->mhi_ac_ctrl_core_.set_fan(1);
+    this->mhi_ac_ctrl_core_.set_power(power_on);
+    this->set_timeout("self_clean", this->self_clean_duration_ms_, [this]() {
+        ESP_LOGI(TAG, "Emulated self-clean cycle complete");
+        this->mhi_ac_ctrl_core_.set_power(power_off);
+    });
+}
+
 void MhiPlatform::mark_state_changed_() {
     this->state_dirty_ = true;
     this->state_save_at_ = millis() + STATE_SAVE_DELAY_MS;
@@ -289,6 +312,8 @@ void MhiPlatform::restore_operating_state_() {
         this->mhi_ac_ctrl_core_.set_vanesLR(this->persisted_state_.vanes_lr);
     if (this->frame_size_ == 33 && (valid & FIELD_3D_AUTO))
         this->mhi_ac_ctrl_core_.set_3Dauto(this->persisted_state_.auto_3d ? AC3Dauto::Dauto_on : AC3Dauto::Dauto_off);
+    if (valid & FIELD_SILENT_OPERATION)
+        this->mhi_ac_ctrl_core_.set_silent_operation(this->persisted_state_.silent_operation);
 }
 
 void MhiPlatform::update_persisted_state_(ACStatus status, int value) {
@@ -320,6 +345,11 @@ void MhiPlatform::update_persisted_state_(ACStatus status, int value) {
             field = FIELD_SETPOINT;
             destination = &this->persisted_state_.setpoint;
             value &= 0x7f;
+            break;
+        case opdata_silent_operation:
+            field = FIELD_SILENT_OPERATION;
+            destination = &this->persisted_state_.silent_operation;
+            value = value != 0;
             break;
         default:
             return;

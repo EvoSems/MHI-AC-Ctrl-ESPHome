@@ -22,6 +22,8 @@ On an ESP restart, the saved power state is deliberately not restored and no pow
 
 Commands are sent twice by default to improve reliability on noisy links. Set `command_retries` under `MhiAcCtrl` to a value from 1 to 5 to tune this behavior. Communication errors are rate-limited in the log so a disconnected or noisy controller cannot flood ESPHome logs.
 
+Silent Operation is available as an experimental switch using the traced DB9/DB10 protocol. Self Clean is available as an explicitly emulated button because no verified native SPI command exists: it runs Fan Only at low speed for `self_clean_duration` (120 minutes by default), then turns the unit off. Any normal power command cancels the emulated cycle.
+
 This project is a simple integration of the amazing work [absalom-muc](https://github.com/absalom-muc) has done with his project [MHI-AC-Ctrl](https://github.com/absalom-muc/MHI-AC-Ctrl).\
 It's supposed to simplify the [Home Assistant](https://www.home-assistant.io/) setup, while giving you OTA and auto-discovery with virtually zero effort and no MQTT needed, powered by [ESPHome](https://ESPHome.io/).\
 `MHI-AC-Ctrl-core.*` files were forked directly, with a small modification to allow for pin setting in yaml, whereas your WiFi credentials should go into the `*.yaml` file, and `mhi_ac_ctrl.h` is the core of the integration.

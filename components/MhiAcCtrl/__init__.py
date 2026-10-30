@@ -8,6 +8,7 @@ CONF_MHI_AC_CTRL_ID = "mhi_ac_ctrl_id"
 CONF_FRAME_SIZE = 'frame_size'
 CONF_COMMAND_RETRIES = 'command_retries'
 CONF_ROOM_TEMP_TIMEOUT = 'room_temp_timeout'
+CONF_SELF_CLEAN_DURATION = 'self_clean_duration'
 CONF_VANES_UD = 'initial_vertical_vanes_position'
 CONF_VANES_LR = 'initial_horizontal_vanes_position'
 CONF_SCK_PIN = "sck_pin"
@@ -31,6 +32,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_FRAME_SIZE, default=20): cv.one_of(20, 33, int=True),
     cv.Optional(CONF_COMMAND_RETRIES, default=2): cv.int_range(min=1, max=5),
     cv.Optional(CONF_ROOM_TEMP_TIMEOUT, default=60): cv.int_range(min=0, max=3600),
+    cv.Optional(CONF_SELF_CLEAN_DURATION, default="120min"): cv.positive_time_period_minutes,
     cv.Optional(CONF_VANES_UD): cv.int_range(min=0, max=5),
     cv.Optional(CONF_VANES_LR): cv.int_range(min=0, max=8),
     cv.Optional(CONF_SCK_PIN): cv.int_,
@@ -44,6 +46,7 @@ async def to_code(config):
     cg.add(var.set_frame_size(config[CONF_FRAME_SIZE]))
     cg.add(var.set_command_retries(config[CONF_COMMAND_RETRIES]))
     cg.add(var.set_room_temp_api_timeout(config[CONF_ROOM_TEMP_TIMEOUT]))
+    cg.add(var.set_self_clean_duration(config[CONF_SELF_CLEAN_DURATION].total_milliseconds))
     if CONF_EXTERNAL_TEMPERATURE_SENSOR in config:
         sens = await cg.get_variable(config[CONF_EXTERNAL_TEMPERATURE_SENSOR])
         cg.add(var.set_external_room_temperature_sensor(sens))

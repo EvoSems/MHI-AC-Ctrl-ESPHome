@@ -47,6 +47,7 @@ void MHI_AC_Ctrl_Core::reset_old_values() {  // used e.g. when MQTT connection t
   op_protection_no_old = 0xff;
   op_ou_fanspeed_old = 0xff;
   op_defrost_old = 0x00;
+  op_silent_operation_old = 0xff;
   op_comp_old = 0xffff;
   op_td_old  = 0x00;
   op_ou_eev1_old = 0xffff;
@@ -133,6 +134,11 @@ void MHI_AC_Ctrl_Core::set_command_retries(byte retries) {
   command_retries = retries;
 }
 
+void MHI_AC_Ctrl_Core::set_silent_operation(bool enabled) {
+  new_silent_operation = enabled ? 0x01 : 0x00;
+  silent_operation_retries = command_retries;
+}
+
 int MHI_AC_Ctrl_Core::loop(uint max_time_ms) {
   const byte opdataCnt = sizeof(opdata) / sizeof(byte) / 2;
   static byte opdataNo = 0;               //
@@ -193,6 +199,7 @@ static byte MOSI_frame[33];
     MISO_frame[DB0] = 0x00;
     MISO_frame[DB1] = 0x00;
     MISO_frame[DB2] = 0x00;
+    MISO_frame[DB10] = 0xff;
 
     if (erropdataCnt > 0) {                 // error operating data available
       MISO_frame[DB6] = 0x80;
@@ -225,6 +232,13 @@ static byte MOSI_frame[33];
       MISO_frame[DB0] |= new_Vanes0;
       MISO_frame[DB1] |= new_Vanes1;
       vanes_retries--;
+    }
+
+    if (silent_operation_retries > 0) {
+      MISO_frame[DB6] = 0x00;
+      MISO_frame[DB9] = 0x21;
+      MISO_frame[DB10] = new_silent_operation;
+      silent_operation_retries--;
     }
 
     if (request_erropData) {
@@ -602,6 +616,15 @@ static byte MOSI_frame[33];
           }
           else
             m_cbiStatus->cbiStatusFunction(erropdata_ou_eev1, MOSI_frame[DB12] << 8 | MOSI_frame[DB11]);
+        }
+        break;
+      case 0xdd:
+        if (MOSI_frame[DB10] == 0x80) {
+          byte silent_operation = (MOSI_frame[DB11] & 0x20) != 0;
+          if (silent_operation != op_silent_operation_old) {
+            op_silent_operation_old = silent_operation;
+            m_cbiStatus->cbiStatusFunction(opdata_silent_operation, silent_operation);
+          }
         }
         break;
       case 0x45: // last error number or count of following error operating data
