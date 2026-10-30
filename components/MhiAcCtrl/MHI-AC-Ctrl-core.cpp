@@ -3,6 +3,17 @@
 
 #include "MHI-AC-Ctrl-core.h"
 
+#if defined(ESP8266) || defined(ARDUINO_ARCH_ESP8266)
+#include <esp8266_peri.h>
+#define MHI_GPIO_READ(pin) GPIP(pin)
+#define MHI_GPIO_WRITE_HIGH(pin) (GPOS = (1U << (pin)))
+#define MHI_GPIO_WRITE_LOW(pin) (GPOC = (1U << (pin)))
+#else
+#define MHI_GPIO_READ(pin) digitalRead(pin)
+#define MHI_GPIO_WRITE_HIGH(pin) digitalWrite(pin, HIGH)
+#define MHI_GPIO_WRITE_LOW(pin) digitalWrite(pin, LOW)
+#endif
+
 uint16_t calc_checksum(byte* frame) {
   uint16_t checksum = 0;
   for (int i = 0; i < CBH; i++)
@@ -58,6 +69,7 @@ void MHI_AC_Ctrl_Core::init() {
   pinMode(SCK_PIN, INPUT);
   pinMode(MOSI_PIN, INPUT);
   pinMode(MISO_PIN, OUTPUT);
+  MHI_GPIO_WRITE_LOW(MISO_PIN);
   MHI_AC_Ctrl_Core::reset_old_values();
 }
 
@@ -154,14 +166,19 @@ static byte MOSI_frame[33];
 
   static uint call_counter = 0;           // counts how often this loop was called
   static unsigned long lastTroomInternalMillis = 0; // remember when Troom internal has changed
+  static unsigned long lastFrameTime = 0;
   if (frameSize == 33)
     MISO_frame[0] = 0xAA;
 
    
   call_counter++;
+
+  if (lastFrameTime > 0 && millis() - lastFrameTime < 18)
+    return err_msg_valid_frame;
+
   int SCKMillis = millis();               // time of last SCK low level
   while (millis() - SCKMillis < 5) {      // wait for 5ms stable high signal to detect a frame start
-    if (!digitalRead(SCK_PIN))
+    if (!MHI_GPIO_READ(SCK_PIN))
       SCKMillis = millis();
     if (millis() - startMillis > max_time_ms)
       return err_msg_timeout_SCK_low;       // SCK stuck@ low error detection
@@ -279,19 +296,19 @@ static byte MOSI_frame[33];
     byte bit_mask = 1;
     for (uint8_t bit_cnt = 0; bit_cnt < 8; bit_cnt++) { // read and write 1 byte
       SCKMillis = millis();
-      while (digitalRead(SCK_PIN)) { // wait for falling edge
+      while (MHI_GPIO_READ(SCK_PIN)) { // wait for falling edge
         if (millis() - startMillis > max_time_ms)
           return err_msg_timeout_SCK_high;       // SCK stuck@ high error detection
       } 
       if ((MISO_frame[byte_cnt] & bit_mask) > 0)
-        digitalWrite(MISO_PIN, 1);
+        MHI_GPIO_WRITE_HIGH(MISO_PIN);
       else
-        digitalWrite(MISO_PIN, 0);
-      while (!digitalRead(SCK_PIN)) { // wait for rising edge
+        MHI_GPIO_WRITE_LOW(MISO_PIN);
+      while (!MHI_GPIO_READ(SCK_PIN)) { // wait for rising edge
         if (millis() - startMillis > max_time_ms)
           return err_msg_timeout_SCK_low;
       }
-      if (digitalRead(MOSI_PIN))
+      if (MHI_GPIO_READ(MOSI_PIN))
         MOSI_byte += bit_mask;
       bit_mask = bit_mask << 1;
     }
@@ -646,5 +663,6 @@ static byte MOSI_frame[33];
         // Serial.printf("Unknown operating data, MOSI_frame[DB9]=%i MOSI_frame[D10]=%i\n", MOSI_frame[DB9], MOSI_frame[DB10]);
     }
   }
+  lastFrameTime = millis();
   return call_counter;
 }

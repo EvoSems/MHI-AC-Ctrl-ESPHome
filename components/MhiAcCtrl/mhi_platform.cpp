@@ -79,15 +79,13 @@ void MhiPlatform::loop() {
     int ret = mhi_ac_ctrl_core_.loop(100);
     if (ret < 0) {
         this->suppressed_error_count_++;
-        if (ret != this->last_loop_error_ || millis() - this->last_error_log_at_ >= ERROR_LOG_INTERVAL_MS) {
+        this->last_loop_error_ = ret;
+        if (millis() - this->last_error_log_at_ >= ERROR_LOG_INTERVAL_MS) {
             ESP_LOGW(TAG, "Communication error %i (%u occurrences since last report)", ret,
                      this->suppressed_error_count_);
-            this->last_loop_error_ = ret;
             this->last_error_log_at_ = millis();
             this->suppressed_error_count_ = 0;
         }
-    } else {
-        this->last_loop_error_ = 0;
     }
 }
 
