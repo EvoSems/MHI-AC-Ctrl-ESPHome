@@ -40,6 +40,12 @@ public:
     void set_vanesLR(int value);
     void set_3Dauto(bool value);
     void set_silent_operation(bool value);
+    void set_communication_errors_sensor(sensor::Sensor *sensor) { this->communication_errors_sensor_ = sensor; }
+    void set_successful_frames_sensor(sensor::Sensor *sensor) { this->successful_frames_sensor_ = sensor; }
+    void set_communication_success_rate_sensor(sensor::Sensor *sensor) {
+        this->communication_success_rate_sensor_ = sensor;
+    }
+    void set_last_valid_frame_age_sensor(sensor::Sensor *sensor) { this->last_valid_frame_age_sensor_ = sensor; }
     void start_self_clean();
     void set_self_clean_duration(uint32_t duration_ms) { this->self_clean_duration_ms_ = duration_ms; }
     void set_external_room_temperature_sensor(sensor::Sensor* sensor);
@@ -98,9 +104,17 @@ private:
     int last_loop_error_{0};
     uint32_t last_error_log_at_{0};
     uint32_t suppressed_error_count_{0};
+    uint32_t communication_errors_total_{0};
+    uint32_t successful_frames_total_{0};
+    uint32_t last_successful_frame_at_{0};
+    uint32_t diagnostics_publish_at_{0};
     uint32_t self_clean_duration_ms_{7200000};
 
     sensor::Sensor* external_temperature_sensor_{nullptr};
+    sensor::Sensor* communication_errors_sensor_{nullptr};
+    sensor::Sensor* successful_frames_sensor_{nullptr};
+    sensor::Sensor* communication_success_rate_sensor_{nullptr};
+    sensor::Sensor* last_valid_frame_age_sensor_{nullptr};
 
     std::vector<MhiStatusListener*> listeners_;
 };

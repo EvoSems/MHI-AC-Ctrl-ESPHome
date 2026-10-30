@@ -11,6 +11,7 @@ static const uint8_t PERSISTED_STATE_VERSION = 1;
 static const uint32_t PERSISTED_STATE_KEY = 0x4D484901;
 static const uint32_t STATE_SAVE_DELAY_MS = 5000;
 static const uint32_t ERROR_LOG_INTERVAL_MS = 10000;
+static const uint32_t DIAGNOSTICS_PUBLISH_INTERVAL_MS = 30000;
 
 
 void MhiPlatform::setup() {
@@ -78,6 +79,7 @@ void MhiPlatform::loop() {
 
     int ret = mhi_ac_ctrl_core_.loop(100);
     if (ret < 0) {
+        this->communication_errors_total_++;
         this->suppressed_error_count_++;
         this->last_loop_error_ = ret;
         if (millis() - this->last_error_log_at_ >= ERROR_LOG_INTERVAL_MS) {
@@ -85,6 +87,26 @@ void MhiPlatform::loop() {
                      this->suppressed_error_count_);
             this->last_error_log_at_ = millis();
             this->suppressed_error_count_ = 0;
+        }
+    } else if (ret > 0) {
+        this->successful_frames_total_++;
+        this->last_successful_frame_at_ = millis();
+    }
+
+    if (static_cast<int32_t>(millis() - this->diagnostics_publish_at_) >= 0) {
+        this->diagnostics_publish_at_ = millis() + DIAGNOSTICS_PUBLISH_INTERVAL_MS;
+        if (this->communication_errors_sensor_ != nullptr)
+            this->communication_errors_sensor_->publish_state(this->communication_errors_total_);
+        if (this->successful_frames_sensor_ != nullptr)
+            this->successful_frames_sensor_->publish_state(this->successful_frames_total_);
+        if (this->communication_success_rate_sensor_ != nullptr) {
+            const uint32_t total = this->communication_errors_total_ + this->successful_frames_total_;
+            this->communication_success_rate_sensor_->publish_state(
+                total == 0 ? NAN : 100.0f * this->successful_frames_total_ / total);
+        }
+        if (this->last_valid_frame_age_sensor_ != nullptr) {
+            this->last_valid_frame_age_sensor_->publish_state(
+                this->last_successful_frame_at_ == 0 ? NAN : (millis() - this->last_successful_frame_at_) / 1000.0f);
         }
     }
 }
@@ -148,7 +170,7 @@ void MhiPlatform::transfer_room_temperature(float value) {
         return;
     }
 
-    if ((value > -10) & (value < 48)) {
+    if ((value > -10) && (value < 48)) {
         byte tmp = value * 4 + 61;
         this->mhi_ac_ctrl_core_.set_troom(value * 4 + 61);
         this->last_room_temperature_ = value; // store last room temperature
